@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -88,21 +89,22 @@ func main() {
 }
 
 func encryptToFile(src []byte, direction io.Writer) error {
-	cipher, err := aes.NewCipher([]byte("thisis32bitlongpassphraseimusing"))
+	c, err := aes.NewCipher([]byte("thisis32bitlongpassphraseimusing"))
 	if err != nil {
 		return err
 	}
-	dst16 := make([]byte, cipher.BlockSize())
-	dst32 := make([]byte, cipher.BlockSize())
-
-	cipher.Encrypt(dst16, src)
-	cipher.Encrypt(dst32, src[16:])
-
-	_, err = direction.Write(dst16)
+	gcm, err := cipher.NewGCM(c)
 	if err != nil {
 		return err
 	}
-	_, err = direction.Write(dst32)
+	fmt.Println(gcm.NonceSize())
+
+	nonce := make([]byte, gcm.NonceSize())
+
+	encrypt := gcm.Seal(nonce, nonce, src, nil)
+
+	fmt.Println(hexutil.Encode(encrypt))
+	_, err = direction.Write(encrypt)
 	if err != nil {
 		return err
 	}
@@ -110,7 +112,7 @@ func encryptToFile(src []byte, direction io.Writer) error {
 }
 
 func decryptFromFile(reader io.Reader) ([]byte, error) {
-	cipher, err := aes.NewCipher([]byte("thisis32bitlongpassphraseimusing"))
+	c, err := aes.NewCipher([]byte("thisis32bitlongpassphraseimusing"))
 	if err != nil {
 		return nil, err
 	}
@@ -118,13 +120,15 @@ func decryptFromFile(reader io.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	dst16 := make([]byte, cipher.BlockSize())
-	dst32 := make([]byte, cipher.BlockSize())
 
-	cipher.Decrypt(dst16, src)
-	cipher.Decrypt(dst32, src[16:])
+	gcm, err := cipher.NewGCM(c)
+	if err != nil {
+		return nil, err
+	}
+	nonceSize := gcm.NonceSize()
+	nonce, src := src[:nonceSize], src[nonceSize:]
 
-	return append(dst16, dst32...), nil
+	return gcm.Open(nil, nonce, src, nil)
 }
 
 func defineOperation() string {
